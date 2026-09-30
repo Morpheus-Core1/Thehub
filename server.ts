@@ -2,7 +2,9 @@ import express from 'express';
 import cors from 'cors';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { apiRouter } from './src/server/api';
+import { GoogleGenAI } from '@google/genai';
+// @ts-ignore
+import apiRoutes from './backend/src/routes/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,8 +15,52 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 app.use(cors());
 app.use(express.json());
 
-// Express API routes
-app.use('/api', apiRouter);
+// Initialize Gemini SDK if key provided
+const apiKey = process.env.GEMINI_API_KEY || '';
+const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
+
+// AI Learning Assistant endpoint (server-side Gemini 2.5)
+app.post('/api/ai/tutor', async (req, res) => {
+  try {
+    const { question, contextCourse, learnerLevel } = req.body;
+    if (!ai) {
+      return res.json({
+        success: true,
+        answer: `[Demo Mode — Add GEMINI_API_KEY to activate live AI Tutor]\n\nKey Concept Breakdown:\n• Context: ${contextCourse || 'General Skills'}\n• Focus: Master practical fundamentals with verified evidence.\n• Advice: Focus on hands-on exercises and reviewing official NISR indicators to understand local economic demand.`,
+        mode: 'fallback'
+      });
+    }
+
+    const systemInstruction = `You are a supportive, expert AI learning coach for "The Hub — Data-Informed Skills & Learning Platform" in Rwanda. You help learners understand practical concepts, guide them through learning pathways, and connect skills to real workplace requirements. Keep answers clear, constructive, and actionable.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: `${systemInstruction}\n\nLearner Level: ${learnerLevel || 'Beginner'}\nCourse Context: ${contextCourse || 'General'}\nLearner Question: ${question}` }
+          ]
+        }
+      ]
+    });
+
+    return res.json({
+      success: true,
+      answer: response.text || 'Unable to generate response.',
+      mode: 'live'
+    });
+  } catch (error: any) {
+    console.error('Error in /api/ai/tutor:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'AI processing error'
+    });
+  }
+});
+
+// Express API routes for The Hub
+app.use('/api', apiRoutes);
 
 // Development: Vite middleware mode
 if (process.env.NODE_ENV !== 'production') {
@@ -34,5 +80,9 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[The Hub] Server running on http://0.0.0.0:${PORT}`);
+  console.log(`====================================================`);
+  console.log(`[The Hub] Full-Stack App running on http://0.0.0.0:${PORT}`);
+  console.log(`API Health: http://0.0.0.0:${PORT}/api/health`);
+  console.log(`====================================================`);
 });
+
